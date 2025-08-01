@@ -1,7 +1,185 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+<<<<<<< HEAD
+contract EHRmain {
+    // User roles
+    enum Role {
+        NONE,
+        PATIENT,
+        DOCTOR,
+        RESEARCHER,
+        HOSPITAL,
+        INSURANCE,
+        AMBULANCE,
+        PHARMACY,
+        LAB
+    }
+
+    // Data types
+    enum DataType {
+        EHR,
+        PHR,
+        LAB_RESULT,
+        PRESCRIPTION,
+        IMAGING,
+        INSURANCE_CLAIM,
+        EMERGENCY_RECORD
+    }
+
+    // Permission types
+    enum PermissionType {
+        VIEW,
+        EDIT,
+        EMERGENCY_ACCESS,
+        INSURANCE_PROCESSING,
+        LAB_PROCESSING,
+        PRESCRIPTION_PROCESSING
+    }
+
+    // Status of permission requests
+    enum RequestStatus {
+        PENDING,
+        APPROVED,
+        REJECTED,
+        EXPIRED
+    }
+
+    // Claim status enum
+    enum ClaimStatus {
+        PENDING,
+        APPROVED,
+        REJECTED
+    }
+
+    // Structs for storing user data
+    struct User {
+        address userAddress;
+        Role role;
+        uint256 registrationDate;
+        bytes32 publicKeyHash;
+    }
+
+    // Struct for health records metadata
+    struct HealthRecord {
+        address owner;
+        string ipfsCid;
+        DataType dataType;
+        string encryptedSymmetricKey;
+        uint256 timestamp;
+        bool isValid;
+        address provider;
+    }
+
+    struct approvedRecord {
+        address owner;
+        address careProvider;
+        string ipfsCid;
+        DataType dataType;
+        string encryptedSymmetricKey;
+        uint256 approvedDate;
+        uint256 expiryDate;
+        bool status;
+    }
+
+    // Struct for permission requests
+    struct PermissionRequest {
+        address requester;
+        address owner;
+        bytes32 requestId;
+        string ipfsCid;
+        PermissionType permissionType;
+        RequestStatus status;
+        uint256 requestDate;
+        uint256 expiryDate;
+        uint incentiveAmount;
+        bool isIncentiveBased;
+    }
+
+    // Struct to hold public and private keys
+    struct KeyPair {
+        string publicKeyForEncryption;
+    }
+
+    // Struct for insurance claims
+    struct InsuranceClaim {
+        uint256 claimId;
+        address patient;
+        string ipfsHash;
+        uint256 claimAmount;
+        string diagnosis;
+        string hospitalName;
+        uint256 timestamp;
+        ClaimStatus status;
+        string rejectionReason;
+        address insuranceProvider;
+    }
+
+    // State variables
+    mapping(address => User) public users;
+    mapping(string => HealthRecord) public healthRecords;
+    mapping(bytes32 => PermissionRequest) public permissionRequests;
+    mapping(address => mapping(string => mapping(address => bool))) public permissions;
+    mapping(address => approvedRecord[]) public approvedRecords;
+    mapping(string => approvedRecord) public approvedRecordsByID;
+    mapping(address => string[]) public ownerToHealthRecords;
+    mapping(address => KeyPair) public userKeys;
+    mapping(address => mapping(address => bool)) public emergencyAccesses;
+    mapping(address => InsuranceClaim[]) public patientClaims;
+    mapping(address => InsuranceClaim[]) public insurerClaims;
+    mapping(uint256 => InsuranceClaim)    public claimsById;
+    uint256 public totalClaims;
+
+    // System variables
+    address public systemOwner;
+    uint256 public totalUsers;
+    uint256 public totalRecords;
+    uint256 public totalRequests;
+    bytes32[] public permissionRequestIds;
+
+    // Events
+    event UserRegistered(address indexed userAddress, Role role);
+    event HealthRecordAdded(string indexed ipfsCid, address indexed owner, DataType dataType);
+    event PermissionRequested(bytes32 requestId, address indexed requester, address indexed owner);
+    event PermissionGranted(bytes32 requestId, address indexed requester, address indexed owner);
+    event PermissionRevoked(string indexed ipfsCid, address indexed revokedUser);
+    event EmergencyAccess(address indexed provider, address indexed patient, uint256 timestamp);
+    event ApprovedRecordAdded(
+        address indexed owner,
+        address indexed careProvider,
+        string ipfsCid,
+        DataType dataType,
+        string encryptedSymmetricKey,
+        uint256 approvedDate,
+        uint256 expiryDate,
+        bool status
+    );
+    event ClaimSubmitted(
+        uint256 indexed claimId,
+        address indexed patient,
+        address indexed insurer,
+        string ipfsHash,
+        uint256 claimAmount,
+        string diagnosis,
+        string hospitalName,
+        uint256 timestamp
+    );
+    event ClaimApproved(
+        uint256 indexed claimId,
+        address indexed patient,
+        address indexed insurer,
+        uint256 timestamp
+    );
+    event ClaimRejected(
+        uint256 indexed claimId,
+        address indexed patient,
+        address indexed insurer,
+        string rejectionReason,
+        uint256 timestamp
+    );
+=======
 import "./EHRStorage.sol";
+>>>>>>> beb502c73e3644be71533a8c68d8100fcd54150f
 
 contract EHRmain is EHRStorage {
     // Modifiers
@@ -40,12 +218,18 @@ contract EHRmain is EHRStorage {
         _;
     }
 
+    modifier onlyInsurance() {
+        require(users[msg.sender].role == Role.INSURANCE, "Only insurance providers can call this function");
+        _;
+    }
+
     // Constructor
     constructor() {
         systemOwner = msg.sender;
         totalUsers = 0;
         totalRecords = 0;
         totalRequests = 0;
+        totalClaims = 0;
     }
 
     // Registry Contract Functions
@@ -200,7 +384,7 @@ contract EHRmain is EHRStorage {
         require(_owner != address(0), "Invalid owner address");
         require(
             keccak256(abi.encodePacked(healthRecords[_ipfsCid].owner)) ==
-                keccak256(abi.encodePacked(_owner)),
+            keccak256(abi.encodePacked(_owner)),
             "Invalid record owner"
         );
 
@@ -236,7 +420,7 @@ contract EHRmain is EHRStorage {
         require(msg.value > 0, "Incentive amount required");
         require(
             keccak256(abi.encodePacked(healthRecords[_ipfsCid].owner)) ==
-                keccak256(abi.encodePacked(_owner)),
+            keccak256(abi.encodePacked(_owner)),
             "Invalid record owner"
         );
 
@@ -309,7 +493,13 @@ contract EHRmain is EHRStorage {
         returns (bool) 
     {
         require(
+<<<<<<< HEAD
+            msg.sender == healthRecords[_ipfsCid].owner || // The patient (owner)
+            msg.sender == _user ||                          // The user themselves
+            msg.sender == systemOwner,                      // The system owner
+=======
             msg.sender == healthRecords[_ipfsCid].owner || msg.sender == _user || msg.sender == systemOwner,
+>>>>>>> beb502c73e3644be71533a8c68d8100fcd54150f
             "Not authorized to revoke this permission"
         );
         
@@ -536,6 +726,89 @@ contract EHRmain is EHRStorage {
         return true;
     }
 
+<<<<<<< HEAD
+    function submitInsuranceClaim(
+        address _insurer,
+        string memory _ipfsHash,
+        uint256 _claimAmount,
+        string memory _diagnosis,
+        string memory _hospitalName
+    ) external onlyPatient returns (uint256) {
+        require(_insurer != address(0), "Invalid insurer address");
+        require(users[_insurer].role == Role.INSURANCE, "Invalid insurer");
+        require(bytes(_ipfsHash).length > 0, "IPFS hash cannot be empty");
+        require(_claimAmount > 0, "Claim amount must be greater than 0");
+        require(bytes(_diagnosis).length > 0, "Diagnosis cannot be empty");
+        require(bytes(_hospitalName).length > 0, "Hospital name cannot be empty");
+
+        totalClaims++;
+        uint256 claimId = totalClaims;
+
+        InsuranceClaim memory newClaim = InsuranceClaim({
+            claimId: claimId,
+            patient: msg.sender,
+            ipfsHash: _ipfsHash,
+            claimAmount: _claimAmount,
+            diagnosis: _diagnosis,
+            hospitalName: _hospitalName,
+            timestamp: block.timestamp,
+            status: ClaimStatus.PENDING,
+            rejectionReason: "",
+            insuranceProvider: _insurer
+        });
+
+        patientClaims[msg.sender].push(newClaim);
+        insurerClaims[_insurer].push(newClaim);
+        claimsById[claimId] = newClaim;
+
+        emit ClaimSubmitted(claimId, msg.sender, _insurer, _ipfsHash, _claimAmount, _diagnosis, _hospitalName, block.timestamp);
+        return claimId;
+    }
+
+    function approveClaim(uint256 _claimId) external onlyInsurance returns (bool) {
+        InsuranceClaim storage claim = claimsById[_claimId];
+        require(claim.claimId != 0, "Claim does not exist");
+        require(claim.insuranceProvider == msg.sender, "Only the assigned insurer can approve this claim");
+        require(claim.status == ClaimStatus.PENDING, "Claim is not in pending status");
+
+        claim.status = ClaimStatus.APPROVED;
+
+        // Optionally, add logic here to transfer funds or update patient's health records
+        // Example: If the claim is for a specific record, you might want to mark it as processed.
+
+        emit ClaimApproved(_claimId, claim.patient, msg.sender, block.timestamp);
+        return true;
+    }
+
+    function rejectClaim(uint256 _claimId, string memory _reason) external onlyInsurance returns (bool) {
+        InsuranceClaim storage claim = claimsById[_claimId];
+        require(claim.claimId != 0, "Claim does not exist");
+        require(claim.insuranceProvider == msg.sender, "Only the assigned insurer can reject this claim");
+        require(claim.status == ClaimStatus.PENDING, "Claim is not in pending status");
+        require(bytes(_reason).length > 0, "Rejection reason cannot be empty");
+
+        claim.status = ClaimStatus.REJECTED;
+        claim.rejectionReason = _reason;
+
+        emit ClaimRejected(_claimId, claim.patient, msg.sender, _reason, block.timestamp);
+        return true;
+    }
+
+    function getPatientClaims(address _patient) external view returns (InsuranceClaim[] memory) {
+        require(_patient != address(0), "Invalid patient address");
+        return patientClaims[_patient];
+    }
+
+    function getInsurerClaims(address _insurer) external view returns (InsuranceClaim[] memory) {
+        require(_insurer != address(0), "Invalid insurer address");
+        require(users[_insurer].role == Role.INSURANCE, "Invalid insurer");
+        return insurerClaims[_insurer];
+    }
+
+    function getClaimById(uint256 _claimId) external view returns (InsuranceClaim memory) {
+        require(_claimId > 0 && _claimId <= totalClaims, "Invalid claim ID");
+        return claimsById[_claimId];
+=======
     function bookAppointment(
         address _patientAddress,
         string memory _hospitalName,
@@ -585,5 +858,6 @@ contract EHRmain is EHRStorage {
         recordToUpdate.status = RecordStatus.COMPLETED;
 
         emit RecordStatusUpdated(_ipfsCid, RecordStatus.COMPLETED);
+>>>>>>> beb502c73e3644be71533a8c68d8100fcd54150f
     }
 }
