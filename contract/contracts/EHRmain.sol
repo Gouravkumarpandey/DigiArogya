@@ -1,134 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract EHRmain {
-    // User roles
-    enum Role {
-        NONE,
-        PATIENT,
-        DOCTOR,
-        RESEARCHER,
-        HOSPITAL,
-        INSURANCE,
-        AMBULANCE,
-        PHARMACY,
-        LAB
-    }
+import "./EHRStorage.sol";
 
-    // Data types
-    enum DataType {
-        EHR,
-        PHR,
-        LAB_RESULT,
-        PRESCRIPTION,
-        IMAGING,
-        INSURANCE_CLAIM,
-        EMERGENCY_RECORD
-    }
-
-    // Permission types
-    enum PermissionType {
-        VIEW,
-        EDIT,
-        EMERGENCY_ACCESS,
-        INSURANCE_PROCESSING,
-        LAB_PROCESSING,
-        PRESCRIPTION_PROCESSING
-    }
-
-    // Status of permission requests
-    enum RequestStatus {
-        PENDING,
-        APPROVED,
-        REJECTED,
-        EXPIRED
-    }
-
-    // Structs for storing user data
-    struct User {
-        address userAddress;
-        Role role;
-        uint256 registrationDate;
-        bytes32 publicKeyHash;
-    }
-
-    // Struct for health records metadata
-    struct HealthRecord {
-        address owner;
-        string ipfsCid;
-        DataType dataType;
-        string encryptedSymmetricKey;
-        uint256 timestamp;
-        bool isValid;
-        address provider;
-    }
-
-    struct approvedRecord {
-        address owner;
-        address careProvider;
-        string ipfsCid;
-        DataType dataType;
-        string encryptedSymmetricKey;
-        uint256 approvedDate;
-        uint256 expiryDate;
-        bool status;
-    }
-
-    // Struct for permission requests
-    struct PermissionRequest {
-        address requester;
-        address owner;
-        bytes32 requestId;
-        string ipfsCid;
-        PermissionType permissionType;
-        RequestStatus status;
-        uint256 requestDate;
-        uint256 expiryDate;
-        uint incentiveAmount;
-        bool isIncentiveBased;
-    }
-
-    // Struct to hold public and private keys
-    struct KeyPair {
-        string publicKeyForEncryption;
-    }
-
-    // State variables
-    mapping(address => User) public users;
-    mapping(string => HealthRecord) public healthRecords;
-    mapping(bytes32 => PermissionRequest) public permissionRequests;
-    mapping(address => mapping(string => mapping(address => bool))) public permissions;
-    mapping(address => approvedRecord[]) public approvedRecords;
-    mapping(string => approvedRecord) public approvedRecordsByID;
-    mapping(address => string[]) public ownerToHealthRecords;
-    mapping(address => KeyPair) public userKeys;
-    mapping(address => mapping(address => bool)) public emergencyAccesses;
-
-    // System variables
-    address public systemOwner;
-    uint256 public totalUsers;
-    uint256 public totalRecords;
-    uint256 public totalRequests;
-    bytes32[] public permissionRequestIds;
-
-    // Events
-    event UserRegistered(address indexed userAddress, Role role);
-    event HealthRecordAdded(string indexed ipfsCid, address indexed owner, DataType dataType);
-    event PermissionRequested(bytes32 requestId, address indexed requester, address indexed owner);
-    event PermissionGranted(bytes32 requestId, address indexed requester, address indexed owner);
-    event PermissionRevoked(string indexed ipfsCid, address indexed revokedUser);
-    event EmergencyAccess(address indexed provider, address indexed patient, uint256 timestamp);
-    event ApprovedRecordAdded(
-        address indexed owner,
-        address indexed careProvider,
-        string ipfsCid,
-        DataType dataType,
-        string encryptedSymmetricKey,
-        uint256 approvedDate,
-        uint256 expiryDate,
-        bool status
-    );
-
+contract EHRmain is EHRStorage {
     // Modifiers
     modifier onlySystemOwner() {
         require(msg.sender == systemOwner, "Only system owner can call this function");
@@ -144,6 +19,11 @@ contract EHRmain {
         );
         _;
     }
+    
+    modifier onlyHospital() {
+        require(users[msg.sender].role == Role.HOSPITAL, "Only hospitals can perform this action");
+        _;
+    }
 
     modifier onlyPatient() {
         require(users[msg.sender].role == Role.PATIENT, "Only patients can call this function");
@@ -151,7 +31,7 @@ contract EHRmain {
     }
 
     modifier recordExists(string memory _ipfsCid) {
-        require(healthRecords[_ipfsCid].isValid, "Record does not exist");
+        require(healthRecords[_ipfsCid].owner != address(0), "Record does not exist");
         _;
     }
 
@@ -226,13 +106,15 @@ contract EHRmain {
         Role patientRole = checkUser(_patientAddress);
         require(patientRole == Role.PATIENT, "Invalid patient");
 
+        RecordStatus initialStatus = (_dataType == DataType.PRESCRIPTION) ? RecordStatus.PENDING : RecordStatus.VALID;
+
         healthRecords[_ipfsCid] = HealthRecord({
             owner: _patientAddress,
             ipfsCid: _ipfsCid,
             dataType: _dataType,
             encryptedSymmetricKey: _encryptedSymmetricKey,
             timestamp: block.timestamp,
-            isValid: true,
+            status: initialStatus,
             provider: msg.sender
         });
 
@@ -250,13 +132,15 @@ contract EHRmain {
     ) external onlyPatient returns (bool) {
         require(bytes(healthRecords[_ipfsCid].ipfsCid).length == 0, "Record already exists");
 
+        RecordStatus initialStatus = (_dataType == DataType.PRESCRIPTION) ? RecordStatus.PENDING : RecordStatus.VALID;
+
         healthRecords[_ipfsCid] = HealthRecord({
             owner: msg.sender,
             ipfsCid: _ipfsCid,
             dataType: _dataType,
             encryptedSymmetricKey: _encryptedSymmetricKey,
             timestamp: block.timestamp,
-            isValid: true,
+            status: initialStatus,
             provider: msg.sender
         });
 
@@ -381,11 +265,9 @@ contract EHRmain {
 
     function getPendingRequestsForPatient(address patient) external view returns (PermissionRequest[] memory) {
         uint256 count = 0;
-
         for (uint256 i = 0; i < permissionRequestIds.length; i++) {
             bytes32 requestId = permissionRequestIds[i];
             PermissionRequest storage request = permissionRequests[requestId];
-
             if (request.owner == patient) {
                 count++;
             }
@@ -393,11 +275,9 @@ contract EHRmain {
 
         PermissionRequest[] memory pendingRequests = new PermissionRequest[](count);
         uint256 index = 0;
-
         for (uint256 i = 0; i < permissionRequestIds.length; i++) {
             bytes32 requestId = permissionRequestIds[i];
             PermissionRequest storage request = permissionRequests[requestId];
-
             if (request.owner == patient) {
                 pendingRequests[index] = request;
                 index++;
@@ -429,13 +309,19 @@ contract EHRmain {
         returns (bool) 
     {
         require(
-            msg.sender == healthRecords[_ipfsCid].owner || // The patient (owner)
-            msg.sender == _user ||                       // The user themselves
-            msg.sender == systemOwner,                   // The system owner
+            msg.sender == healthRecords[_ipfsCid].owner || msg.sender == _user || msg.sender == systemOwner,
             "Not authorized to revoke this permission"
         );
         
         permissions[healthRecords[_ipfsCid].owner][_ipfsCid][_user] = false;
+
+        for (uint i = 0; i < approvedRecords[_user].length; i++) {
+            if (keccak256(abi.encodePacked(approvedRecords[_user][i].ipfsCid)) == keccak256(abi.encodePacked(_ipfsCid))) {
+                approvedRecords[_user][i].status = false;
+                break;
+            }
+        }
+        
         emit PermissionRevoked(_ipfsCid, _user);
         return true;
     }
@@ -443,11 +329,9 @@ contract EHRmain {
     function getHealthRecordsByOwner(address userAddress) public view returns (HealthRecord[] memory) {
         uint256 totalRecordsForOwner = ownerToHealthRecords[userAddress].length;
         HealthRecord[] memory records = new HealthRecord[](totalRecordsForOwner);
-
         for (uint256 i = 0; i < totalRecordsForOwner; i++) {
             string memory ipfsCid = ownerToHealthRecords[userAddress][i];
-            HealthRecord memory record = healthRecords[ipfsCid];
-            records[i] = record;
+            records[i] = healthRecords[ipfsCid];
         }
         return records;
     }
@@ -461,7 +345,7 @@ contract EHRmain {
             DataType dataType,
             string memory encryptedSymmetricKey,
             uint256 timestamp,
-            bool isValid,
+            RecordStatus status,
             address provider
         )
     {
@@ -472,26 +356,38 @@ contract EHRmain {
             record.dataType,
             record.encryptedSymmetricKey,
             record.timestamp,
-            record.isValid,
+            record.status,
             record.provider
         );
     }
 
-    function getRecordsByCareProvider(address _careProvider) 
-        public 
-        view 
-        returns (approvedRecord[] memory) 
+    function getRecordsByCareProvider(address _careProvider)
+        public
+        view
+        returns (approvedRecord[] memory)
     {
         require(_careProvider != address(0), "Invalid care provider address");
 
-        uint256 totalRecordsForCareProvider = approvedRecords[_careProvider].length;
-        approvedRecord[] memory records = new approvedRecord[](totalRecordsForCareProvider);
-
-        for (uint256 j = 0; j < approvedRecords[_careProvider].length; j++) {
-            approvedRecord memory record = approvedRecords[_careProvider][j];
-            records[j] = record;
+        uint256 pendingPrescriptionCount = 0;
+        for (uint i = 0; i < approvedRecords[_careProvider].length; i++) {
+            approvedRecord storage ar = approvedRecords[_careProvider][i];
+            HealthRecord storage hr = healthRecords[ar.ipfsCid];
+            if (ar.status == true && hr.dataType == DataType.PRESCRIPTION && hr.status == RecordStatus.PENDING) {
+                pendingPrescriptionCount++;
+            }
         }
-        return records;
+
+        approvedRecord[] memory pendingPrescriptions = new approvedRecord[](pendingPrescriptionCount);
+        uint256 index = 0;
+        for (uint j = 0; j < approvedRecords[_careProvider].length; j++) {
+            approvedRecord storage ar = approvedRecords[_careProvider][j];
+            HealthRecord storage hr = healthRecords[ar.ipfsCid];
+            if (ar.status == true && hr.dataType == DataType.PRESCRIPTION && hr.status == RecordStatus.PENDING) {
+                pendingPrescriptions[index] = ar;
+                index++;
+            }
+        }
+        return pendingPrescriptions;
     }
 
     function getRecordsForResearcher(address requester, string memory recordId) 
@@ -505,16 +401,15 @@ contract EHRmain {
         approvedRecord memory record = approvedRecordsByID[recordId];
         require(record.status, "Record is not active");
         require(block.timestamp <= record.expiryDate, "Access has expired");
-
         return record;
     }
 
-    function invalidateRecord(string memory _ipfsCid) 
-        external 
-        recordExists(_ipfsCid) 
-        onlySystemOwner 
+    function invalidateRecord(string memory _ipfsCid)
+        external
+        recordExists(_ipfsCid)
+        onlySystemOwner
     {
-        healthRecords[_ipfsCid].isValid = false;
+        healthRecords[_ipfsCid].status = RecordStatus.INVALID;
     }
 
     function getPermissionRequest(bytes32 requestId)
@@ -599,7 +494,7 @@ contract EHRmain {
             requester: msg.sender,
             owner: _owner,
             requestId: requestId,
-            ipfsCid: "", // Empty IPFS CID indicates batch access request
+            ipfsCid: "",
             permissionType: PermissionType.VIEW,
             status: RequestStatus.PENDING,
             requestDate: block.timestamp,
@@ -621,12 +516,10 @@ contract EHRmain {
 
         permissionRequests[_requestId].status = RequestStatus.APPROVED;
         
-        // Grant permissions for all records owned by the patient
         string[] memory patientRecords = ownerToHealthRecords[msg.sender];
         for (uint i = 0; i < patientRecords.length; i++) {
             permissions[msg.sender][patientRecords[i]][permissionRequests[_requestId].requester] = true;
             
-            // Add to approved records
             HealthRecord memory record = healthRecords[patientRecords[i]];
             addApprovedRecord(
                 msg.sender,
@@ -642,5 +535,55 @@ contract EHRmain {
         emit PermissionGranted(_requestId, permissionRequests[_requestId].requester, msg.sender);
         return true;
     }
-}
 
+    function bookAppointment(
+        address _patientAddress,
+        string memory _hospitalName,
+        string memory _roomType
+    ) external onlyHospital {
+        require(users[_patientAddress].userAddress != address(0), "Patient is not registered");
+
+        Appointment memory newAppointment = Appointment({
+            patientAddress: _patientAddress,
+            hospitalAddress: msg.sender,
+            hospitalName: _hospitalName,
+            roomType: _roomType,
+            bookingDate: block.timestamp
+        });
+
+        patientAppointments[_patientAddress].push(newAppointment);
+
+        emit AppointmentBooked(
+            _patientAddress,
+            msg.sender,
+            _hospitalName,
+            _roomType,
+            block.timestamp
+        );
+    }
+
+    function getAppointmentsByPatient(address _patientAddress)
+        external
+        view
+        returns (Appointment[] memory)
+    {
+        require(
+            msg.sender == _patientAddress || users[msg.sender].role == Role.HOSPITAL,
+            "Not authorized to view appointments"
+        );
+        return patientAppointments[_patientAddress];
+    }
+
+    function processPrescription(string memory _ipfsCid) external recordExists(_ipfsCid) {
+        HealthRecord storage recordToUpdate = healthRecords[_ipfsCid];
+
+        require(users[msg.sender].role == Role.PHARMACY, "Caller is not a pharmacy");
+        require(recordToUpdate.dataType == DataType.PRESCRIPTION, "Not a prescription");
+        require(recordToUpdate.status == RecordStatus.PENDING, "Not a pending prescription");
+        require(permissions[recordToUpdate.owner][_ipfsCid][msg.sender], "Pharmacy does not have access");
+
+        recordToUpdate.status = RecordStatus.COMPLETED;
+
+        emit RecordStatusUpdated(_ipfsCid, RecordStatus.COMPLETED);
+    }
+}
