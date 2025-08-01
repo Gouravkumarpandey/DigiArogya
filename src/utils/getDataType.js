@@ -10,6 +10,10 @@ export const getDataTypeEnum = (dataType) => {
             return 3;
         case 'IMAGING':
             return 4;
+        case 'INSURANCE_CLAIM':
+            return 5;
+        case 'EMERGENCY_RECORD':
+            return 6;
         default:
             return 1;
     }
@@ -21,12 +25,16 @@ export const getDataTypeName = (dataType) => {
             return 'EHR';
         case 1:
             return 'PHR';
-        case 'LAB_RESULT':
-            return 'LAB_RESULT';
+        case 2:
+            return 'Lab Results';
         case 3:
-            return 'PRESCRIPTION';
+            return 'Prescription';
         case 4:
-            return 'IMAGING';
+            return 'Imaging';
+        case 5:
+            return 'Insurance Claim';
+        case 6:
+            return 'Emergency Record';
         default:
             return 'NA';
     }
