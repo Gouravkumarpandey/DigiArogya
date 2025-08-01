@@ -11,7 +11,7 @@ import contractABI from '../../contractABI.json';
 // Get contract address from networks (Ganache local blockchain)
 const getContractAddress = () => {
   const networkId = '5777'; // Ganache default network ID
-  const address = contractABI.networks[networkId]?.address || process.env.REACT_APP_CONTRACT_ADDRESS;
+  const address = contractABI.networks?.[networkId]?.address || process.env.REACT_APP_CONTRACT_ADDRESS;
   console.log('Contract address found:', address);
   console.log('Available networks:', Object.keys(contractABI.networks || {}));
   return address;
